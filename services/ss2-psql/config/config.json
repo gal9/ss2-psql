@@ -1,8 +1,11 @@
 {
-    "base_url": "http://5.53.108.182:1026/v2/entities/",
+    "debug": "True",
+    "context": "https://uri.etsi.org/ngsi-ld/v1/ngsi-ld-core-context.jsonld",
+    "base_url": "http://naiades.simavi.ro:5002/validation/ld/entities/",
+    "create_url": "http://naiades.simavi.ro:1026/ngsi-ld/v1/entities/",
     "headers": {
         "Fiware-Service": "braila",
-        "Content-Type": "application/json"
+        "Content-Type": "application/ld+json"
     },
     "API_user": "jsistate",
     "API_pass": "atls87kdu72"

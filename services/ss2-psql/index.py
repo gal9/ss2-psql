@@ -9,7 +9,8 @@ import os
 import copy
 
 from data_models import alert_template
-from custom_error import Custom_error    
+from custom_error import Custom_error  
+from mappers import model_id_to_sensor  
 import requests
 
 def get_last_ts():
@@ -121,18 +122,58 @@ def postToFiware(data_model, entity_id, update):
     if (response.status_code > 300):
         raise Custom_error(f"Error sending to the API. Response stauts code: {response.status_code}")
 
-def create_data_model(obj):
+def postToFiware_ld(data_model, entity_id):
+    if(debug):
+        print(print(json.dumps(data_model, indent=4, sort_keys=True)))
+
+    # URL contstruction
+    url = base_url + entity_id + "/attrs"
+
+    response = requests.post(url, headers=fiware_headers, data=json.dumps(data_model) )
+    
+    # TODO test if it failed because the entity is not yet created
+    if(response.status_code == 301):
+        # Create entity
+        url = self.create_url
+        response = requests.post(url, headers=fiware_headers, data=json.dumps(data_model) )
+        
+        # Check if creatin was sucesfull
+        if (response.status_code > 300):
+            print(f"Error creating an entity", flush=True)
+
+    # Check if upload was successful
+    if (response.status_code > 300):
+        print(f"Error sending to the API. Response status conde {response.status_code}", flush=True)
+    try:
+        if(type(eval(response.content.decode("utf-8"))) is not str):
+            status_code = eval(response.content.decode("utf-8")).get("status_code")
+            # Test for errors and log them
+            if (status_code > 300):
+                message = eval(response.content.decode("utf-8")).get("message")
+                print(f"Error sending to the API. Response status conde {status_code}", flush=True)
+                print(f"Response body content: {message}")
+                # raise Custom_error(f"Error sending to the API. Response stauts code: {response.status_code}")
+    except:
+        print(response.content)
+
+def create_data_model(obj, entity_id):
     """Create the data model to post to FIWARE API from the object obtained 
     from the postgres."""
     data_model = copy.deepcopy(alert_template)
 
     # time to datetime
     time_stamp = datetime.datetime.utcfromtimestamp(obj["time"]/1000000)
-    data_model["dateIssued"]["value"] = (time_stamp).isoformat() + ".00Z"
+    data_model["dateIssued"]["value"] = (time_stamp).isoformat("T", "seconds") + ".00Z"
     title = obj["title"]
     content = obj["content"]
 
     data_model["description"]["value"] = f"Title: {title}, Content: {content}"
+
+    # Add entity id field
+    data_model["id"] = entity_id
+
+    # Add context field
+    data_model["@context"] = context
 
     # Sign and append signature
     data_model = sign(data_model)
@@ -145,17 +186,18 @@ def job():
     lastts = get_last_ts()
     obj = get_last_notifications(lastts)[-1]
     model_id = obj["model_id"]
-
-    # PUT NAIADES FIWARE code here uzem sm zadnjega
-    # Create data model to be sent
-    data_model = create_data_model(obj)
-
+    
     # Construct the entity (Alert) id TODO
     entity_id = f"urn:ngsi-ld:Alert:RO-Braila-{model_id_to_sensor[model_id]}-state-analysis-tool" 
 
+    # PUT NAIADES FIWARE code here uzem sm zadnjega
+    # Create data model to be sent
+    data_model = create_data_model(obj, entity_id)
+
+
     # Try sendong the model
     try:
-        postToFiware(o, entity_id, True)
+        postToFiware_ld(o, entity_id)
     except Exception as e:
         print(e, flush=True)
 
@@ -166,12 +208,11 @@ def sign(data_model):
         signature = self.encode(data_model)
     except Exception as e:
         print(f"Signing failed", flush=True)
-        signature = "null"
+        signature = "ksiSignature"
     
     # Add signature to the message
     data_model["ksiSignature"] = {
-        "metadata": {},
-        "type": "Text",
+        "type": "Property",
         "value": signature
     }
 
@@ -200,28 +241,26 @@ def encode(output_dict):
     # Raise error if it is not correctly signed 
     assert int(verification) == True
 
-    return encodedZip        
-
-
-model_id_to_sensor = {
-    101: "211106H360",
-    102: "211206H360",
-    103: "211306H360",
-    104: "318505H498"
-}
+    return encodedZip       
 
 if __name__ == '__main__':
     global base_url
+    global create_url
+    global context
     global fiware_headers
     global API_user
     global API_pass
+    global debug
     #Read FIWARE configuration
     with open("config/config.json") as configuration:
         conf = json.load(configuration)
         base_url = conf["base_url"]
+        create_url = conf["create_url"]
+        context = conf["context"]
         fiware_headers = conf["headers"]
         API_user = conf["API_user"]
         API_pass = conf["API_pass"]
+        debug = conf["debug"] == "True"
 
     # scheduling each second (change to a more reasonable duration)
     # in production
@@ -236,16 +275,22 @@ def test():
     """
     A method only used for testing the uplaod """
     global base_url
+    global create_url
+    global context
     global fiware_headers
     global API_user
     global API_pass
+    global debug
     #Read FIWARE configuration
     with open("config/config.json") as configuration:
         conf = json.load(configuration)
         base_url = conf["base_url"]
+        create_url = conf["create_url"]
+        context = conf["context"]
         fiware_headers = conf["headers"]
         API_user = conf["API_user"]
         API_pass = conf["API_pass"]
+        debug = conf["debug"] == "True"
 
     obj = {
         'id': 1,
@@ -255,12 +300,11 @@ def test():
         'content': 'Test content of the alert',
         'time': 1649931489368.622
     }
-
-    data_model = create_data_model(obj)
-    model_id = obj["model_id"]
-
-
+    
     # Construct the entity (Alert) id
+    model_id = obj["model_id"]
     entity_id = f"urn:ngsi-ld:Alert:RO-Braila-{model_id_to_sensor[model_id]}-state-analysis-tool" 
 
-    postToFiware(data_model, entity_id, True)
+    data_model = create_data_model(obj, entity_id)
+
+    postToFiware_ld(data_model, entity_id)
