@@ -9,7 +9,7 @@ alert_template = {
         "type": "Property",
         "value": "Final leakage position detected" # title + Content
     },
-    "type": "Alert",
+    #"type": "Alert",
     # Attributes that get updated 
     "updatedAttributes": {
         "type": "Property", 

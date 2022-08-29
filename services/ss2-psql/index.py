@@ -156,21 +156,56 @@ def postToFiware_ld(data_model, entity_id):
     except:
         print(response.content)
 
+def postToFiware_context_ld(data_model, entity_id):
+    """
+    Posts entities to the API. Note that if an entity does not
+    exist this does not create it (the entity needs to be manualy
+    created beforehand).
+    """
+    body = data_model
+
+    # URL contstruction
+    url = base_url + entity_id + "/attrs"
+
+    debug = True
+
+    if(debug):
+        print(f"URL ld: {url}")
+        print(json.dumps(body, indent=4, sort_keys=True)) 
+    
+    # Assumes that entity is created and can just do a patch
+    response = requests.patch(url, headers=fiware_headers, data=json.dumps(body))
+
+    # Check if upload was successful
+    if (response.status_code > 300):
+        print(f"Error sending to the API. Response status conde {response.status_code}", flush=True)
+    try:
+        if(type(eval(response.content.decode("utf-8"))) is not str):
+            status_code = eval(response.content.decode("utf-8")).get("status_code")
+            # Test for errors and log them
+            if (status_code > 300):
+                message = eval(response.content.decode("utf-8")).get("message")
+                print(f"Error sending to the API. Response status conde {status_code}", flush=True)
+                print(f"Response body content: {message}")
+                # raise Custom_error(f"Error sending to the API. Response stauts code: {response.status_code}")
+    except:
+        print(response.content)
+
 def create_data_model(obj, entity_id):
     """Create the data model to post to FIWARE API from the object obtained 
     from the postgres."""
     data_model = copy.deepcopy(alert_template)
 
-    # time to datetime
-    time_stamp = datetime.datetime.utcfromtimestamp(obj["time"]/1000000)
+    # time to datetime (assumes timestamp in milliseconds)
+    time_stamp = datetime.datetime.utcfromtimestamp(obj["time"]/1000)
     data_model["dateIssued"]["value"] = (time_stamp).isoformat("T", "seconds") + ".00Z"
     title = obj["title"]
     content = obj["content"]
 
     data_model["description"]["value"] = f"Title: {title}, Content: {content}"
 
-    # Add entity id field
-    data_model["id"] = entity_id
+    # Add entity id field (not required)
+    #data_model["id"] = entity_id
 
     # Add context field
     data_model["@context"] = context
@@ -197,7 +232,7 @@ def job():
 
     # Try sendong the model
     try:
-        postToFiware_ld(o, entity_id)
+        postToFiware_context_ld(o, entity_id)
     except Exception as e:
         print(e, flush=True)
 
@@ -205,10 +240,10 @@ def sign(data_model):
     # Try signing the message with KSI tool (requires execution in
     # the dedicated container)
     try:
-        signature = self.encode(data_model)
+        signature = encode(data_model)
     except Exception as e:
         print(f"Signing failed", flush=True)
-        signature = "ksiSignature"
+        signature = "signatureFailed"
     
     # Add signature to the message
     data_model["ksiSignature"] = {
@@ -236,10 +271,10 @@ def encode(output_dict):
             print(encodedZip.decode())
 
     # Checking if the signature is correct
-    verification = subprocess.check_output(f'ksi verify -i json.txt.ksig -f json.txt -d --dump G -X http://5.53.108.232:8081 --ext-user {self.API_user} --ext-key {self.API_pass} -P http://verify.guardtime.com/ksi-publications.bin --cnstr E=publications@guardtime.com | grep -xq "    OK: No verification errors." ; echo $?', shell=True)
+    verification = subprocess.check_output(f'ksi verify -i json.txt.ksig -f json.txt -d --dump G -X http://5.53.108.232:8081 --ext-user {API_user} --ext-key {API_pass} -P http://verify.guardtime.com/ksi-publications.bin --cnstr E=publications@guardtime.com | grep -xq "    OK: No verification errors." ; echo $?', shell=True)
     
     # Raise error if it is not correctly signed 
-    assert int(verification) == True
+    assert int(verification) == 0
 
     return encodedZip       
 
@@ -307,4 +342,4 @@ def test():
 
     data_model = create_data_model(obj, entity_id)
 
-    postToFiware_ld(data_model, entity_id)
+    postToFiware_context_ld(data_model, entity_id)
